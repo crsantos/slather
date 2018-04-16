@@ -8,6 +8,8 @@ module Slather
       def coverage_file_class
         if input_format == "profdata"
           Slather::ProfdataCoverageFile
+        elsif input_format == "xccov"
+          Slather::XccovCoverageFile
         else
           raise StandardError, "Only profdata input format supported by llvm-cov show."
         end

@@ -8,6 +8,8 @@ module Slather
       def coverage_file_class
         if input_format == "profdata"
           Slather::ProfdataCoverageFile
+        elsif input_format == "xccov"
+            Slather::XccovCoverageFile
         else
           Slather::CoverageFile
         end

@@ -24,7 +24,7 @@ class CoverageCommand < Clamp::Command
   option ["--ignore", "-i"], "IGNORE", "ignore files conforming to a path", :multivalued => true
   option ["--verbose", "-v"], :flag, "Enable verbose mode"
 
-  option ["--input-format"], "INPUT_FORMAT", "Input format (gcov, profdata)"
+  option ["--input-format"], "INPUT_FORMAT", "Input format (gcov, profdata, xccov)"
   option ["--scheme"], "SCHEME", "The scheme for which the coverage was generated"
   option ["--configuration"], "CONFIGURATION", "The configuration for test that the project was set"
   option ["--workspace"], "WORKSPACE", "The workspace that the project was built in"
