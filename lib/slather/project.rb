@@ -119,17 +119,36 @@ module Slather
     private :gcov_coverage_files
 
     def xccov_coverage_files
-      coverage_files = Dir["#{build_directory}/**/*.xccovreport"].map do |file|
-        coverage_file = coverage_file_class.new(self, file)
-        # If there's no source file for this gcno, it probably belongs to another project.
-        coverage_file.source_file_pathname && !coverage_file.ignored? ? coverage_file : nil
-      end.compact
+      p "xccov_coverage_files build_directory = #{xccov_coverage_dir}"
 
-      if coverage_files.empty?
-        raise StandardError, "No coverage files found."
-      else
-        dedupe(coverage_files)
-      end
+      xccov_source_file = []
+
+      Dir["#{xccov_coverage_dir}/*.xccovreport"].map do |report_file|
+
+        xccov_data = `xcrun xccov view --json #{report_file}`
+        xccov_json = JSON.parse(xccov_data)
+
+        xccov_json["targets"].each do |target|
+          target["files"].each do |file|
+            xccov_source_file << coverage_file = coverage_file_class.new(self, file["name"], file["path"], "#{xccov_coverage_dir}/*.xccovarchive", file)
+          end
+        end
+
+        # p "coverage_files file = #{file}"
+        #
+        # p "coverage_file instance = #{coverage_file}"
+        # # If there's no source file for this gcno, it probably belongs to another project.
+        # # coverage_file.source_file_pathname && !coverage_file.ignored? ? coverage_file : nil
+        # coverage_file
+      end #.compact
+
+      return xccov_source_file
+      #
+      # if xccov_source_file.empty?
+      #   raise StandardError, "No coverage files found."
+      # else
+      #   dedupe(coverage_files)
+      # end
     end
     private :xccov_coverage_files
 
@@ -250,6 +269,7 @@ module Slather
     # xcov related function
 
     def xccov_coverage_dir
+      p "self.build_directory = #{self.build_directory}"
       raise StandardError, "The specified build directory (#{self.build_directory}) does not exist" unless File.exists?(self.build_directory)
       dir = nil
       # if self.scheme
@@ -278,6 +298,8 @@ module Slather
         end
       end
 
+      p "xccov_coverage_dir = #{dir}"
+      p "coverage_files = #{coverage_files}"
 
       raise StandardError, "No coverage directory found." unless dir != nil
       dir
@@ -396,8 +418,8 @@ module Slather
 
     def input_format=(format)
       format ||= "auto"
-      unless %w(gcov profdata auto).include?(format)
-        raise StandardError, "Only supported input formats are gcov, profdata or auto"
+      unless %w(gcov profdata xccov auto).include?(format)
+        raise StandardError, "Only supported input formats are gcov, profdata, xccov or auto"
       end
       if format == "auto"
         @input_format = Slather.xcode_version[0] < 7 ? "gcov" : "profdata"
@@ -671,8 +693,8 @@ module Slather
           end
         end
       else
-        p "xccov_coverage_dir = #{xccov_coverage_dir}"
-        xctest_bundle = Dir["#{xccov_coverage_dir}/**/*.xctest"].reject { |bundle|
+        p "self.build_directory = #{self.build_directory}"
+        xctest_bundle = Dir["#{self.build_directory}/**/*.xctest"].reject { |bundle|
             # Ignore xctest bundles that are in the UI runner app
             bundle.include? "-Runner.app/PlugIns/"
         }.first

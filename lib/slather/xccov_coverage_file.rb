@@ -1,5 +1,6 @@
 require 'slather/coverage_info'
 require 'slather/coveralls_coverage'
+require 'json'
 
 module Slather
   class XccovCoverageFile
@@ -7,19 +8,45 @@ module Slather
     include CoverageInfo
     include CoverallsCoverage
 
-    attr_accessor :project, :gcno_file_pathname
+    attr_accessor :project, :xccov_file_pathname, :xccov_full_path, :xccov_report_file_path, :json
 
-    def initialize(project, gcno_file_pathname)
+    def initialize(project, xccov_file_pathname, xccov_full_path, xccov_report_file_path, json)
       self.project = project
-      self.gcno_file_pathname = Pathname(gcno_file_pathname)
+      self.xccov_file_pathname = Pathname(xccov_file_pathname)
+      self.xccov_full_path = Pathname(xccov_full_path)
+      self.xccov_report_file_path = Pathname(xccov_report_file_path)
+      self.json = json
+      xccov_data
+      create_over_data
+      create_line_data
+    end
+
+    def xccov_data
+      # p "xccov_data source_file_pathname = #{self.xccov_file_pathname}"
+      @xccov_data ||= begin
+        # p "xcrun xccov view --file #{self.xccov_full_path} #{self.xccov_report_file_path}"
+        lines = `xcrun xccov view --file #{self.xccov_full_path} #{self.xccov_report_file_path}`.split("\n")
+        # p "xccov_data = #{xccov_data}"self.xccov_full_path
+        lines
+      end
+    end
+
+    def create_over_data
+    end
+
+    def create_line_data
+
     end
 
     def source_file_pathname
+      return ""
+      # p "source_file_pathname started"
       @source_file_pathname ||= begin
-        base_filename = gcno_file_pathname.basename.sub_ext("")
+        base_filename = xccov_file_pathname.basename.sub_ext("")
         path = nil
         if project.source_directory
           path = Dir["#{project.source_directory}/**/#{base_filename}.{#{supported_file_extensions.join(",")}}"].first
+          # p "source_file_pathname path = #{path}"
           path &&= Pathname(path)
         else
           pbx_file = project.files.detect { |pbx_file|
@@ -60,6 +87,7 @@ module Slather
     end
 
     def all_lines
+      return xccov_data # ["0:1:abcd","#:2:efg","10:3:eee","-:4:ppp"]
       unless cleaned_gcov_data.empty?
         first_line_start = cleaned_gcov_data =~ /^\s+(-|#+|[0-9+]):\s+1:/
         cleaned_gcov_data[first_line_start..-1].split("\n").map
@@ -69,7 +97,7 @@ module Slather
     end
 
     def cleaned_gcov_data
-      data = gcov_data.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: '').gsub(/^function(.*) called [0-9]+ returned [0-9]+% blocks executed(.*)$\r?\n/, '')
+      data = xccov_data.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: '').gsub(/^function(.*) called [0-9]+ returned [0-9]+% blocks executed(.*)$\r?\n/, '')
       data.gsub(/^branch(.*)$\r?\n/, '')
     end
 
@@ -78,36 +106,84 @@ module Slather
     end
 
     def line_coverage_data
-      unless cleaned_gcov_data.empty?
-        first_line_start = cleaned_gcov_data =~ /^\s+(-|#+|[0-9+]):\s+1:/
-
-        cleaned_gcov_data[first_line_start..-1].split("\n").map do |line|
-          coverage_for_line(line)
-        end
-      else
-        []
+      unless self.json.empty?
+        return self.json['coveredLines'].to_i
       end
     end
 
+    def num_lines_testable
+      if !self.json.empty? && self.json['executableLines']
+        return (self.json['executableLines'] * 100).to_f
+      else
+        return 0
+      end
+    end
+
+    def percentage_lines_tested
+      unless self.json.empty?
+        return (self.json['lineCoverage'] * 100).to_f
+      end
+      return 0
+    end
+
+    def num_lines_tested
+      unless self.json.empty?
+        return (self.json['coveredLines']).to_i
+      end
+      return 0
+    end
+
+    def source_file_pathname_relative_to_repo_root
+      self.xccov_full_path.realpath.relative_path_from(Pathname("./").realpath)
+      #"abcd" #source_file_pathname.realpath.relative_path_from(Pathname("./").realpath)
+    end
+
+    # def line_coverage_data
+    #   unless cleaned_gcov_data.empty?
+    #     first_line_start = cleaned_gcov_data =~ /^\s+(-|#+|[0-9+]):\s+1:/
+
+    #     cleaned_gcov_data[first_line_start..-1].split("\n").map do |line|
+    #       coverage_for_line(line)
+    #     end
+    #   else
+    #     []
+    #   end
+    # end
+
     def line_number_in_line(line)
-      line.split(':')[1].strip.to_i
+      line.split(':')[0].strip.to_i
     end
 
     def coverage_for_line(line)
-      line =~ /^(.+?):/
 
-      match = $1.strip
-      case match
-      when /[0-9]+/
-        match.to_i
-      when /#+/
-        0
-      when "-"
+      unless (line.nil?)
+        # p "self.xccov_full_path = #{self.xccov_full_path}"
+        # p line
+
+        line =~ /^.+?:(.*)/
+
+        begin
+          match = $1.strip
+
+          case match
+          when /[0-9]+/
+            match.to_i
+          when /#+/
+            0
+          when "*"
+            nil
+          end
+        rescue
+          nil
+        end
+      else
         nil
       end
     end
 
     def branch_coverage_data
+      @branch_coverage_data ||= Hash.new
+      return @branch_coverage_data
       @branch_coverage_data ||= begin
         branch_coverage_data = Hash.new
 
