@@ -96,6 +96,8 @@ module Slather
     def coverage_files
       if self.input_format == "profdata"
         profdata_coverage_files
+      elsif self.input_format == "xccov"
+        xccov_coverage_files
       else
         gcov_coverage_files
       end
@@ -115,6 +117,21 @@ module Slather
       end
     end
     private :gcov_coverage_files
+
+    def xccov_coverage_files
+      coverage_files = Dir["#{build_directory}/**/*.xccovreport"].map do |file|
+        coverage_file = coverage_file_class.new(self, file)
+        # If there's no source file for this gcno, it probably belongs to another project.
+        coverage_file.source_file_pathname && !coverage_file.ignored? ? coverage_file : nil
+      end.compact
+
+      if coverage_files.empty?
+        raise StandardError, "No coverage files found."
+      else
+        dedupe(coverage_files)
+      end
+    end
+    private :xccov_coverage_files
 
     def profdata_coverage_files
       coverage_files = []
@@ -229,6 +246,82 @@ module Slather
       coverage_files.group_by(&:source_file_pathname).values.map { |cf_array| cf_array.max_by(&:percentage_lines_tested) }
     end
     private :dedupe
+
+    # xcov related function
+
+    def xccov_coverage_dir
+      raise StandardError, "The specified build directory (#{self.build_directory}) does not exist" unless File.exists?(self.build_directory)
+      dir = nil
+      # if self.scheme
+      #   dir = Dir[File.join(build_directory,"/**/CodeCoverage/#{self.scheme}")].first
+      # else
+      #   dir = Dir[File.join(build_directory,"/**/#{first_product_name}")].first
+      # end
+
+      # if dir == nil
+      #   # Xcode 7.3 moved the location of Coverage.profdata
+      #   dir = Dir[File.join(build_directory,"/**/Logs/Test")].first
+      # end
+
+      if dir == nil && Slather.xcode_version[0] >= 9
+        # Xcode 9 moved the location of Coverage.profdata
+        coverage_files = Dir[File.join(build_directory, "/**/Logs/Test/*.xccovreport")]
+
+        if coverage_files.count == 0
+          # Look up one directory
+          # The ProfileData directory is next to Intermediates.noindex (in previous versions of Xcode the coverage was inside Intermediates)
+          coverage_files = Dir[File.join(build_directory, "../**/Logs/Test/*.xccovreport")]
+        end
+
+        if coverage_files != nil
+          dir = Pathname.new(coverage_files.first).parent()
+        end
+      end
+
+
+      raise StandardError, "No coverage directory found." unless dir != nil
+      dir
+    end
+
+    def xccov_report_file
+      xccov_coverage_dir = self.xccov_coverage_dir
+      if xccov_coverage_dir == nil
+        raise StandardError, "No coverage directory found. Please make sure the \"Code Coverage\" checkbox is enabled in your scheme's Test action or the build_directory property is set."
+      end
+
+      file =  Dir["#{xccov_coverage_dir}/**/*.xccovreport"].first
+      unless file != nil
+        return nil
+      end
+      return File.expand_path(file)
+    end
+    private :xccov_report_file
+
+    def unsafe_xccov_llvm_cov_output(binary_path, source_files)
+      profdata_file_arg = profdata_file
+      if profdata_file_arg == nil
+        raise StandardError, "No xccovreport files found. Please make sure the \"Code Coverage\" checkbox is enabled in your scheme's Test action or the build_directory property is set."
+      end
+
+      if binary_path == nil
+        raise StandardError, "No binary file found."
+      end
+
+      llvm_cov_args = %W(show -instr-profile #{profdata_file_arg} #{binary_path})
+      if self.arch
+        llvm_cov_args << "--arch" << self.arch
+      end
+      `xcrun llvm-cov #{llvm_cov_args.shelljoin} #{source_files.shelljoin}`
+    end
+    private :unsafe_xccov_llvm_cov_output
+
+    def xccov_llvm_cov_output(binary_path, source_files)
+      output = unsafe_xccov_llvm_cov_output(binary_path, source_files)
+      output.valid_encoding? ? output : output.encode!('UTF-8', 'binary', :invalid => :replace, undef: :replace)
+    end
+    private :xccov_llvm_cov_output
+
+    # xcov related function end
 
     def self.yml_filename
       '.slather.yml'
@@ -369,9 +462,13 @@ module Slather
     end
 
     def configure_binary_file
+      p "self.input_format = #{self.input_format}"
       if self.input_format == "profdata"
         self.binary_file = load_option_array("binary_file") || find_binary_files
+      elsif self.input_format == "xccov"
+        self.binary_file = load_option_array("binary_file") || find_xccov_binary_files
       end
+      p "self.binary_file = #{self.binary_file}"
     end
 
     def configure_arch
@@ -466,7 +563,116 @@ module Slather
           end
         end
       else
+        p "profdata_coverage_dir = #{profdata_coverage_dir}"
         xctest_bundle = Dir["#{profdata_coverage_dir}/**/*.xctest"].reject { |bundle|
+            # Ignore xctest bundles that are in the UI runner app
+            bundle.include? "-Runner.app/PlugIns/"
+        }.first
+
+        # Find the matching binary file
+        search_list = binary_basename || ['*']
+
+        search_list.each do |search_for|
+          xctest_bundle_file_directory = Pathname.new(xctest_bundle).dirname
+          app_bundle = Dir["#{xctest_bundle_file_directory}/#{search_for}.app"].first
+          matched_xctest_bundle = Dir["#{xctest_bundle_file_directory}/#{search_for}.xctest"].first
+          dynamic_lib_bundle = Dir["#{xctest_bundle_file_directory}/#{search_for}.{framework,dylib}"].first
+
+          if app_bundle != nil
+            found_binary = find_binary_file_in_bundle(app_bundle)
+          elsif matched_xctest_bundle != nil
+            found_binary = find_binary_file_in_bundle(matched_xctest_bundle)
+          elsif dynamic_lib_bundle != nil
+            found_binary = find_binary_file_in_bundle(dynamic_lib_bundle)
+          else
+            found_binary = find_binary_file_in_bundle(xctest_bundle)
+          end
+
+          if found_binary
+            found_binaries.push(found_binary)
+          end
+        end
+      end
+
+      raise StandardError, "No product binary found in #{profdata_coverage_dir}." unless found_binaries.count > 0
+
+      found_binaries.map { |binary| File.expand_path(binary) }
+    end
+
+    def find_xccov_binary_files
+      binary_basename = load_option_array("binary_basename")
+      found_binaries = []
+
+      # Get scheme info out of the xcodeproj
+      if self.scheme
+        schemes_path = Xcodeproj::XCScheme.shared_data_dir(self.path)
+        xcscheme_path = "#{schemes_path + self.scheme}.xcscheme"
+
+        # Try to look inside 'xcuserdata' if the scheme is not found in 'xcshareddata'
+        if !File.file?(xcscheme_path)
+          schemes_path = Xcodeproj::XCScheme.user_data_dir(self.path)
+          xcscheme_path = "#{schemes_path + self.scheme}.xcscheme"
+        end
+
+        if self.workspace and !File.file?(xcscheme_path)
+          # No scheme was found in the xcodeproj, check the workspace
+          schemes_path = Xcodeproj::XCScheme.shared_data_dir(self.workspace)
+          xcscheme_path = "#{schemes_path + self.scheme}.xcscheme"
+
+          if !File.file?(xcscheme_path)
+            schemes_path = Xcodeproj::XCScheme.user_data_dir(self.workspace)
+            xcscheme_path = "#{schemes_path + self.scheme}.xcscheme"
+          end
+        end
+
+        raise StandardError, "No scheme named '#{self.scheme}' found in #{self.path}" unless File.exists? xcscheme_path
+
+        xcscheme = Xcodeproj::XCScheme.new(xcscheme_path)
+
+        if self.configuration
+          configuration = self.configuration
+        else
+          configuration = xcscheme.test_action.build_configuration
+        end
+
+        search_list = binary_basename || find_buildable_names(xcscheme)
+        search_dir = profdata_coverage_dir
+
+        if Slather.xcode_version[0] >= 9
+          # Go from the directory containing Coverage.profdata back to the directory containing Products (back out of ProfileData/UUID-dir)
+          search_dir = File.join(search_dir, '../..')
+        end
+
+        search_list.each do |search_for|
+          found_product = Dir["#{search_dir}/Products/#{configuration}*/#{search_for}*"].sort { |x, y|
+            # Sort the matches without the file extension to ensure better matches when there are multiple candidates
+            # For example, if the binary_basename is Test then we want Test.app to be matched before Test Helper.app
+            File.basename(x, File.extname(x)) <=> File.basename(y, File.extname(y))
+          }.find { |path|
+            next if path.end_with? ".dSYM"
+            next if path.end_with? ".swiftmodule"
+
+            if File.directory? path
+              path = find_binary_file_in_bundle(path)
+              next if path.nil?
+            end
+
+            matches_arch(path)
+          }
+
+          if found_product and File.directory? found_product
+            found_binary = find_binary_file_in_bundle(found_product)
+          else
+            found_binary = found_product
+          end
+
+          if found_binary
+            found_binaries.push(found_binary)
+          end
+        end
+      else
+        p "xccov_coverage_dir = #{xccov_coverage_dir}"
+        xctest_bundle = Dir["#{xccov_coverage_dir}/**/*.xctest"].reject { |bundle|
             # Ignore xctest bundles that are in the UI runner app
             bundle.include? "-Runner.app/PlugIns/"
         }.first
