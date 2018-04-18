@@ -119,7 +119,7 @@ module Slather
     private :gcov_coverage_files
 
     def xccov_coverage_files
-      p "xccov_coverage_files build_directory = #{xccov_coverage_dir}"
+      # p "xccov_coverage_files build_directory = #{xccov_coverage_dir}"
 
       xccov_source_file = []
 
@@ -269,7 +269,7 @@ module Slather
     # xcov related function
 
     def xccov_coverage_dir
-      p "self.build_directory = #{self.build_directory}"
+      # p "self.build_directory = #{self.build_directory}"
       raise StandardError, "The specified build directory (#{self.build_directory}) does not exist" unless File.exists?(self.build_directory)
       dir = nil
       # if self.scheme
@@ -298,8 +298,8 @@ module Slather
         end
       end
 
-      p "xccov_coverage_dir = #{dir}"
-      p "coverage_files = #{coverage_files}"
+      # p "xccov_coverage_dir = #{dir}"
+      # p "coverage_files = #{coverage_files}"
 
       raise StandardError, "No coverage directory found." unless dir != nil
       dir
@@ -484,13 +484,13 @@ module Slather
     end
 
     def configure_binary_file
-      p "self.input_format = #{self.input_format}"
+      # p "self.input_format = #{self.input_format}"
       if self.input_format == "profdata"
         self.binary_file = load_option_array("binary_file") || find_binary_files
       elsif self.input_format == "xccov"
         self.binary_file = load_option_array("binary_file") || find_xccov_binary_files
       end
-      p "self.binary_file = #{self.binary_file}"
+      # p "self.binary_file = #{self.binary_file}"
     end
 
     def configure_arch
@@ -693,7 +693,7 @@ module Slather
           end
         end
       else
-        p "self.build_directory = #{self.build_directory}"
+        # p "self.build_directory = #{self.build_directory}"
         xctest_bundle = Dir["#{self.build_directory}/**/*.xctest"].reject { |bundle|
             # Ignore xctest bundles that are in the UI runner app
             bundle.include? "-Runner.app/PlugIns/"
