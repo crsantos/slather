@@ -25,7 +25,7 @@ module Slather
       # p "xccov_data source_file_pathname = #{self.xccov_file_pathname}"
       @xccov_data ||= begin
         # p "xcrun xccov view --file #{self.xccov_full_path} #{self.xccov_report_file_path}"
-        lines = `xcrun xccov view --file #{self.xccov_full_path} #{self.xccov_report_file_path}`.split("\n")
+        lines = `xcrun xccov view --file "#{self.xccov_full_path}" "#{self.xccov_report_file_path}"`.split("\n")
         # p "xccov_data = #{xccov_data}"self.xccov_full_path
         lines
       end

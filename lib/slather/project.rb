@@ -125,7 +125,7 @@ module Slather
 
       Dir["#{xccov_coverage_dir}/*.xccovreport"].map do |report_file|
 
-        xccov_data = `xcrun xccov view --json #{report_file}`
+        xccov_data = `xcrun xccov view --json "#{report_file}"`
         xccov_json = JSON.parse(xccov_data)
 
         xccov_json["targets"].each do |target|
