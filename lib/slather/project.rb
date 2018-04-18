@@ -130,7 +130,9 @@ module Slather
 
         xccov_json["targets"].each do |target|
           target["files"].each do |file|
-            xccov_source_file << coverage_file = coverage_file_class.new(self, file["name"], file["path"], "#{xccov_coverage_dir}/*.xccovarchive", file)
+            Dir["#{xccov_coverage_dir}/*.xccovarchive"].map do |xccovarchive|
+              xccov_source_file << coverage_file = coverage_file_class.new(self, file["name"], file["path"], "#{xccovarchive}", file)
+            end
           end
         end
 
