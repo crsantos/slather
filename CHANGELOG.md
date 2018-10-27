@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## master
+## v2.4.6
 
 * Fix .dSYM and .swiftmodule files filtering in find_binary_files()
   [krin-san](https://github.com/krin-san)
@@ -8,7 +8,11 @@
 
 * Fixed loading coverage for a single source file
   [blackm00n](https://github.com/blackm00n)
-  [#377](https://github.com/SlatherOrg/slather/pull/377)
+  [#377](https://github.com/SlatherOrg/slather/pull/377) [#398](https://github.com/SlatherOrg/slather/pull/398)
+
+* Fixed truncated file list in HTML export
+  [miroslavkovac](https://github.com/miroslavkovac)
+  [#402](https://github.com/SlatherOrg/slather/pull/402) [#261](https://github.com/SlatherOrg/slather/issues/261)
 
 ## v2.4.5
 
